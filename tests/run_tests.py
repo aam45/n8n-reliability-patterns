@@ -199,8 +199,12 @@ def main():
         expect("nothing is handed over before approval",
                not any(h["id"] == "msg-2" for h in received["handover"]), received["handover"])
         approve = body.get("approveUrl", "").replace("category=sonstiges", "category=bestellung")
-        code, _ = call("GET", approve)
-        expect("approval link works", code == 200, code)
+        # The answer goes out just before the execution parks at the Wait node; a click in that
+        # moment gets 409 "running already" and has to be repeated (see README).
+        codes = []
+        wait_for("approval accepted", lambda: codes.append(call("GET", approve)[0]) or codes[-1] != 409)
+        expect("approval link works (409 only while the execution is still parking)",
+               codes[-1:] == [200] and all(c == 409 for c in codes[:-1]), codes)
         got = wait_for("handover msg-2", lambda: any(h["id"] == "msg-2" for h in received["handover"]))
         expect("approved message is handed over with the person's category",
                got and any(h["id"] == "msg-2" and h["category"] == "bestellung" and h["decidedBy"] == "human"

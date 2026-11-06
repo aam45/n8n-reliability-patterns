@@ -54,6 +54,8 @@ flowchart LR
 - Jede Übergabe sagt, wer entschieden hat: `decidedBy: "model"` oder `"human"`.
 - Das Modell wird über eine OpenAI-kompatible Schnittstelle angesprochen (`LLM_BASE_URL`, `LLM_MODEL`). Das passt zu OpenAI, Mistral, Gemini (OpenAI-kompatibler Endpunkt) oder einem lokalen Ollama. Der API-Schlüssel liegt als n8n-Credential *LLM API* (Header Auth), nicht im Workflow.
 
+**Gut zu wissen:** Die Antwort mit dem Link geht raus, kurz bevor die Ausführung am Wait-Knoten stehen bleibt. Wer den Link in diesem Moment aufruft (meist ein Skript, kaum ein Mensch), bekommt `409`; dann einfach erneut aufrufen. Der Test prüft genau das.
+
 **Grenze:** Der Freigabe-Link läuft nicht ab. Für den Betrieb beim Wait-Knoten ein Zeitlimit setzen und den Ablauf nach Fristende an eine Eskalation hängen.
 
 ## Einrichten in einer eigenen n8n-Instanz
