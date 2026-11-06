@@ -1,0 +1,80 @@
+{
+  "id": "rlpSignedHook001",
+  "name": "01 Signierter Webhook mit Duplikat-Schutz",
+  "active": false,
+  "settings": { "executionOrder": "v1", "errorWorkflow": "rlpErrorAlert001" },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "signed-event",
+        "responseMode": "responseNode",
+        "options": { "rawBody": true }
+      },
+      "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e01",
+      "name": "Event in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e01"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accept an event only if it is signed with WEBHOOK_SECRET (HMAC-SHA256 over the raw body)\n// and its id was not accepted before. The sender may retry as often as it likes.\nconst crypto = require('crypto');\nconst secret = $env.WEBHOOK_SECRET;\n// With an empty or short key almost any signature would pass: refuse everything instead.\nif (!secret || secret.length < 32) throw new Error('WEBHOOK_SECRET fehlt oder ist kuerzer als 32 Zeichen');\n\n// Limit: ids live in the workflow's static data (one instance, saved after each run).\n// Several n8n workers or parallel duplicates need a table with a unique id in Postgres instead.\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst now = Date.now();\nconst WEEK = 7 * 24 * 3600 * 1000;\nfor (const [id, at] of Object.entries(store.seen)) if (now - at > WEEK) delete store.seen[id];\n\nconst items = $input.all();\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const given = String(items[i].json.headers['x-signature'] || '');\n  const raw = (await this.helpers.getBinaryDataBuffer(i, 'data')).toString('utf8');\n  const want = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');\n  const valid = given.length === want.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want));\n  if (!valid) { out.push({ json: { statusCode: 401, status: 'invalid_signature' } }); continue; }\n\n  let event;\n  try { event = JSON.parse(raw); } catch { out.push({ json: { statusCode: 400, status: 'invalid_json' } }); continue; }\n  if (!event || !event.id) { out.push({ json: { statusCode: 400, status: 'missing_id' } }); continue; }\n  if (store.seen[event.id]) { out.push({ json: { statusCode: 200, status: 'duplicate', id: event.id } }); continue; }\n\n  store.seen[event.id] = now;\n  out.push({ json: { statusCode: 200, status: 'accepted', id: event.id, event } });\n}\nreturn out;"
+      },
+      "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e02",
+      "name": "Signatur und Duplikat pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: $json.status, id: $json.id ?? null } }}",
+        "options": { "responseCode": "={{ $json.statusCode }}" }
+      },
+      "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e03",
+      "name": "Antwort an Absender",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e05",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "accepted",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e04",
+      "name": "Neu?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {},
+      "id": "5b0f3a8e-6f4e-4c55-9a0e-0a1f7c2d9e06",
+      "name": "Verarbeiten (eigene Logik)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [960, -80]
+    }
+  ],
+  "connections": {
+    "Event in": { "main": [[{ "node": "Signatur und Duplikat pruefen", "type": "main", "index": 0 }]] },
+    "Signatur und Duplikat pruefen": { "main": [[{ "node": "Antwort an Absender", "type": "main", "index": 0 }]] },
+    "Antwort an Absender": { "main": [[{ "node": "Neu?", "type": "main", "index": 0 }]] },
+    "Neu?": { "main": [[{ "node": "Verarbeiten (eigene Logik)", "type": "main", "index": 0 }], []] }
+  }
+}

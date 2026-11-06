@@ -1,0 +1,156 @@
+{
+  "id": "rlpClassifyApr01",
+  "name": "03 KI-Einordnung mit Freigabe durch einen Menschen",
+  "active": false,
+  "settings": { "executionOrder": "v1", "errorWorkflow": "rlpErrorAlert001" },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "classify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c01",
+      "name": "Nachricht in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c01"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.LLM_MODEL, temperature: 0, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'Ordne die Nachricht genau einer Kategorie zu: rechnung, bestellung, reklamation, sonstiges. Antworte nur mit JSON: {\"category\": \"<kategorie>\", \"confidence\": <zahl zwischen 0 und 1>}' }, { role: 'user', content: String($json.body.text ?? '') } ] }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c02",
+      "name": "Modell fragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "rlpLlmApiCred001", "name": "LLM API" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// The model only suggests. Its answer counts only if it fits the schema and is sure enough;\n// everything else (other category, no JSON, model down) goes to a person.\nconst ALLOWED = ['rechnung', 'bestellung', 'reklamation', 'sonstiges'];\nconst threshold = Number($env.CONFIDENCE_THRESHOLD ?? 0.8);\nconst input = $('Nachricht in').first().json.body;\n\nlet category = null;\nlet confidence = 0;\nlet reason = null;\ntry {\n  const answer = JSON.parse($json.choices[0].message.content);\n  const sure = Number(answer.confidence);\n  if (ALLOWED.includes(answer.category) && sure >= 0 && sure <= 1) {\n    category = answer.category;\n    confidence = sure;\n    if (confidence < threshold) reason = `Modell unsicher (${confidence})`;\n  } else {\n    reason = 'Antwort ausserhalb des Schemas';\n  }\n} catch {\n  reason = 'keine verwertbare Antwort vom Modell';\n}\nreturn [{ json: { id: input.id ?? null, category, confidence, auto: reason === null, reason } }];"
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c03",
+      "name": "Antwort pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c10",
+              "leftValue": "={{ $json.auto }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c04",
+      "name": "Sicher genug?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { id: $json.id, decision: 'auto', category: $json.category, confidence: $json.confidence } }}",
+        "options": {}
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c05",
+      "name": "Antwort: automatisch",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, -120]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { id: $json.id, decision: 'review', suggestion: $json.category, reason: $json.reason, approveUrl: $execution.resumeUrl + ($execution.resumeUrl.includes('?') ? '&' : '?') + 'category=' + ($json.category ?? 'sonstiges') } }}",
+        "options": {}
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c06",
+      "name": "Antwort: zur Pruefung",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, 120]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "GET",
+        "options": {}
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c07",
+      "name": "Auf Freigabe warten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1200, 120],
+      "webhookId": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c07"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The person confirms the suggestion or picks another category via ?category=...\nconst ALLOWED = ['rechnung', 'bestellung', 'reklamation', 'sonstiges'];\nconst chosen = String($json.query?.category ?? '');\nif (!ALLOWED.includes(chosen)) throw new Error(`Unbekannte Kategorie bei der Freigabe: \"${chosen}\"`);\nconst checked = $('Antwort pruefen').first().json;\nreturn [{ json: { id: checked.id, category: chosen, confidence: checked.confidence, decidedBy: 'human' } }];"
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c08",
+      "name": "Entscheidung uebernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HANDOVER_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ id: $json.id, category: $json.category, decidedBy: $json.decidedBy ?? 'model', confidence: $json.confidence }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "3a2b1c0d-9e8f-4a7b-8c6d-5e4f3a2b1c09",
+      "name": "An Zielsystem uebergeben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Nachricht in": { "main": [[{ "node": "Modell fragen", "type": "main", "index": 0 }]] },
+    "Modell fragen": { "main": [[{ "node": "Antwort pruefen", "type": "main", "index": 0 }]] },
+    "Antwort pruefen": { "main": [[{ "node": "Sicher genug?", "type": "main", "index": 0 }]] },
+    "Sicher genug?": {
+      "main": [
+        [{ "node": "Antwort: automatisch", "type": "main", "index": 0 }],
+        [{ "node": "Antwort: zur Pruefung", "type": "main", "index": 0 }]
+      ]
+    },
+    "Antwort: automatisch": { "main": [[{ "node": "An Zielsystem uebergeben", "type": "main", "index": 0 }]] },
+    "Antwort: zur Pruefung": { "main": [[{ "node": "Auf Freigabe warten", "type": "main", "index": 0 }]] },
+    "Auf Freigabe warten": { "main": [[{ "node": "Entscheidung uebernehmen", "type": "main", "index": 0 }]] },
+    "Entscheidung uebernehmen": { "main": [[{ "node": "An Zielsystem uebergeben", "type": "main", "index": 0 }]] }
+  }
+}
