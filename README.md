@@ -1,5 +1,7 @@
 # n8n-reliability-patterns
 
+[![test](https://github.com/aam45/n8n-reliability-patterns/actions/workflows/test.yml/badge.svg)](https://github.com/aam45/n8n-reliability-patterns/actions/workflows/test.yml)
+
 Drei n8n-Workflows für das, woran Automatisierungen in der Praxis scheitern: doppelte oder gefälschte Webhooks, Fehler, die niemand bemerkt, und KI-Antworten, denen man blind vertraut.
 
 Jeder Workflow lässt sich direkt in n8n importieren. Ein Testlauf startet n8n in Docker und prüft alle drei mit echten HTTP-Aufrufen (16 Prüfungen).
